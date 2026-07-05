@@ -1,13 +1,7 @@
 # GaBP Tutorial
 
-A general-purpose **Gaussian Belief Propagation (GaBP)** factor-graph solver for
+A **Gaussian Belief Propagation (GaBP)** Factor Graph Optimization (FGO) Tutorial for
 state estimation, control and planning.
-
-The core is domain independent: you declare variable nodes and factors, supply your
-own measurement functions, and run belief propagation. It was extracted and
-refactored from the Bundle Adjustment / SLAM implementation of
-[*Bundle Adjustment on a Graph Processor*](https://arxiv.org/abs/2003.03134)
-(Ortiz et al., CVPR 2020) into a reusable, SLAM-free solver.
 
 ## Install
 
