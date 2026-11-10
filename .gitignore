@@ -3,3 +3,9 @@ __pycache__/
 *.egg-info/
 .ipynb_checkpoints/
 .venv/
+kgw-legacy/
+dataset/
+pbp/
+pbp copy/
+ref/
+

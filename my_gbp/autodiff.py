@@ -16,7 +16,7 @@
 
 import numpy as np
 
-from gbp.differentiation import jac_fd
+from .differentiation import jac_fd
 
 
 def _numerical_jac(meas_fn, delta=1e-6):
@@ -25,6 +25,7 @@ def _numerical_jac(meas_fn, delta=1e-6):
     return jac
 
 
+# meas_fn must b edefined by jax.numpy
 def _jax_jac(meas_fn):
     try:
         import jax

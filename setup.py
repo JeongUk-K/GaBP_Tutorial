@@ -15,5 +15,6 @@ setup(
     ],
     extras_require={
         'jax': ['jax'],
+        'plot': ['matplotlib', 'pillow'],
     },
 )

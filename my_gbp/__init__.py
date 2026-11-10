@@ -12,7 +12,9 @@ from . import autodiff
 from . import gbp
 
 from .gaussian import NdimGaussian
-from .gbp import FactorGraph, VariableNode, Factor
+from .gbp import FactorGraph
+from .variable_node import VariableNode
+from .factor import Factor
 
 __all__ = [
     'FactorGraph', 'VariableNode', 'Factor', 'NdimGaussian',

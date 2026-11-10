@@ -9,6 +9,7 @@ import numpy as np
 """
 
 
+# Finite difference Jacobian computation
 def jac_fd(inp, meas_fn, *args, delta=1e-8):
     """
         Compute the Jacobian of meas_fn at inp using the finite difference method.
@@ -25,6 +26,7 @@ def jac_fd(inp, meas_fn, *args, delta=1e-8):
     return jac
 
 
+# Jacobian check utility
 def check_jac(jac_fn, inp, meas_fn, *args, threshold=1e-3):
     jac = jac_fn(inp, *args)
     jacfd = jac_fd(inp, meas_fn, *args)
