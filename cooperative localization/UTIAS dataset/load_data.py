@@ -39,30 +39,36 @@ def load_data(dataset_dir):
     }
 
 
-def prepare_data(raw_data, hz, duration):
+def prepare_data(raw_data, hz, duration, *, start_offset=0.0):
     """Create node times and select a window from the shared state-data interval.
 
     Input tables must be ordered by time. All returned times are absolute.
     State tables retain boundary support samples; measurements stay in the window.
+    start_offset is seconds after the earliest shared groundtruth/odometry time.
+    duration is measured from the selected start, not from the common start.
     """
     if not np.isfinite(hz) or hz <= 0:
         raise ValueError('hz must be finite and positive.')
     if not np.isfinite(duration) or duration <= 0:
         raise ValueError('duration must be finite and positive.')
+    if not np.isfinite(start_offset) or start_offset < 0:
+        raise ValueError('start_offset must be finite and non-negative.')
 
     state_tables = [
         robot[name]
         for robot in raw_data['robots'].values()
         for name in ('odometry', 'groundtruth')
     ]
-    start_time = max(table[0, 0] for table in state_tables)
+    common_start = max(table[0, 0] for table in state_tables)
     available_end = min(table[-1, 0] for table in state_tables)
-    end_time = start_time + duration
-    if start_time >= available_end:
+    if common_start >= available_end:
         raise ValueError('Robot state data have no shared time interval.')
+    start_time = common_start + start_offset
+    end_time = start_time + duration
     if end_time > available_end:
         raise ValueError(
-            f'duration exceeds the shared interval of {available_end - start_time:.6f} seconds.'
+            'start_offset + duration exceeds the shared interval of '
+            f'{available_end - common_start:.6f} seconds.'
         )
 
     # Include the endpoint only when it lies on the regular node-time grid.

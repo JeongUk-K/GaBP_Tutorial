@@ -2,6 +2,9 @@ from pathlib import Path
 
 from load_data import load_data, prepare_data
 from build_graph import build_graph
+from build_graph_landmark import build_graph as build_landmark_graph
+from build_graph_robot_meas import build_graph as build_robot_measurement_graph
+from plottter import plot_estimates, print_rmse
 
 import numpy as np
 
@@ -12,8 +15,9 @@ DATASET_DIR = (
 )
 HISTORY_PATH = Path(__file__).resolve().with_name('history.csv')
 
-hz=2
-duration=100
+hz=1
+start_offset=20.0  # Seconds after the common start of all robots' state data.
+duration=50
 max_iters=9000
 
 # covariance matrices
@@ -28,29 +32,50 @@ odometry_cov = np.diag([(odom_v_std**2)*(dt**2), odom_y_cov, (odom_w_std**2)*(dt
 
 measurement_cov = np.diag([0.5**2, (3*np.pi/180)**2])  # 0.5 m and 3 deg
 
+# 1 = full measurement model
+# 2 = landmark-only
+# 3 = robot-only
+options = 2
 
 
-def main(hz, duration, max_iters, *, prior_cov, odometry_cov, measurement_cov):
+def main(hz, duration, max_iters, *, prior_cov, odometry_cov, measurement_cov,
+         start_offset=0.0, options=1, show_plot=True):
+    builders = {
+        1: build_graph,
+        2: build_landmark_graph,
+        3: build_robot_measurement_graph,
+    }
+    if options not in builders:
+        raise ValueError('options must be 1 (full), 2 (landmark-only), or 3 (robot-only).')
     raw_data = load_data(DATASET_DIR)
-    data = prepare_data(raw_data, hz, duration)
-    graph, variables = build_graph(
+    data = prepare_data(raw_data, hz, duration, start_offset=start_offset)
+    graph, variables = builders[options](
         data, prior_cov=prior_cov, odometry_cov=odometry_cov,
         measurement_cov=measurement_cov,
     )
     converged, n_iters, history = graph.solve(
-        max_iters=max_iters, tol=1e-6, monitoring=True, history=True,
+        max_iters=max_iters, tol=1, monitoring=True, history=True,
         history_path=HISTORY_PATH,
     )
+    poses = np.asarray([
+        [node.mean.copy() for node in nodes]
+        for nodes in variables['robots'].values()
+    ])
+    print('Converged:', converged, 'Iterations:', n_iters)
+    print('History saved:', HISTORY_PATH)
+    print_rmse(data, poses)
+    if show_plot:
+        plot_estimates(data, poses, options=options, iteration=n_iters,
+                       raw_data=raw_data, show=True)
     return graph, variables, converged, n_iters, history
 
 
 if __name__ == '__main__':
     graph, variables, converged, n_iters, history = main(
         hz, duration, max_iters,
+        start_offset=start_offset,
+        options=options,
         prior_cov=prior_cov,
         odometry_cov=odometry_cov,
         measurement_cov=measurement_cov,
     )
-    print('Converged:', converged, 'Iterations:', n_iters)
-
-    print('History saved:', HISTORY_PATH)

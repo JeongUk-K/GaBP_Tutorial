@@ -9,7 +9,8 @@ def nearest_time_index(node_times, measurement_time):
     return int(np.argmin(np.abs(np.asarray(node_times) - measurement_time)))
 
 
-def build_graph(data, *, prior_cov, odometry_cov, measurement_cov):
+def build_graph(data, *, prior_cov, odometry_cov, measurement_cov,
+                measurement_type='all'):
     """Build the graph using a supplied covariance for each relative pose factor.
 
     prior_cov and odometry_cov are 3x3; measurement_cov is 2x2.
@@ -17,7 +18,11 @@ def build_graph(data, *, prior_cov, odometry_cov, measurement_cov):
     predicted pose's right tangent coordinates [rho_x(m), rho_y(m), theta(rad)].
     It is used directly without dt scaling or a world-frame rotation.
     Only robot poses are variables; landmark positions are fixed measurement inputs.
+    measurement_type selects range-bearing factors: 'all', 'landmark' or 'robot'.
+    Priors and odometry factors are included in every case.
     """
+    if measurement_type not in ('all', 'landmark', 'robot'):
+        raise ValueError("measurement_type must be 'all', 'landmark' or 'robot'.")
     odometry_cov = np.asarray(odometry_cov, dtype=float)
     if odometry_cov.shape != (3, 3):
         raise ValueError('Set odometry_cov to the final 3x3 pose-error covariance Q in main.')
@@ -44,7 +49,8 @@ def build_graph(data, *, prior_cov, odometry_cov, measurement_cov):
     graph = FactorGraph()
     variables = add_variables(graph, data, motions, prior_cov)
     add_odometry_factors(graph, variables, motions, odometry_cov)
-    add_measurement_factors(graph, data, variables, measurement_cov)
+    add_measurement_factors(graph, data, variables, measurement_cov,
+                            measurement_type=measurement_type)
     return graph, variables
 
 
@@ -83,17 +89,23 @@ def add_odometry_factors(graph, variables, motions, odometry_cov):
             factor.compute_messages(eta_damping=0.)
 
 
-def add_measurement_factors(graph, data, variables, measurement_cov):
+def add_measurement_factors(graph, data, variables, measurement_cov, *,
+                            measurement_type='all'):
     barcode_to_subject = {int(code): int(subject) for subject, code in data['barcodes']}
     landmarks = {int(row[0]): row[1:3].copy() for row in data['landmarks']}
     for robot_id, robot in data['robots'].items():
         for time, barcode, distance, bearing in robot['measurements']:
+            subject = barcode_to_subject[int(barcode)]
+            is_robot = subject in variables['robots']
+            if measurement_type == 'landmark' and is_robot:
+                continue
+            if measurement_type == 'robot' and not is_robot:
+                continue
             index = nearest_time_index(data['node_times'], time)
             observer = variables['robots'][robot_id][index]
-            subject = barcode_to_subject[int(barcode)]
             adjacent = [observer]
             landmark = None
-            if subject in variables['robots']:
+            if is_robot:
                 adjacent.append(variables['robots'][subject][index])
             else:
                 landmark = landmarks[subject]

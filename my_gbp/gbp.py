@@ -140,7 +140,7 @@ class FactorGraph:
         """
         elapsed_time = 0.0
         if monitoring:
-            print('Solving factor graph with', self.n_var_nodes, 'variables,', self.n_factor_nodes, 'factors and', self.n_edges, 'edges.')
+            print('Solving factor graph with', self.n_var_nodes, 'variables,', self.n_factor_nodes, 'factors and')
 
         self.history = []
         if history:

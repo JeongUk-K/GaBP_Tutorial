@@ -1,5 +1,6 @@
 import importlib.util
 from pathlib import Path
+import sys
 import unittest
 from unittest.mock import patch
 
@@ -195,6 +196,63 @@ class UTIASGraphTests(unittest.TestCase):
         data['robots'][1]['measurements'][0, 1] = 43
         with self.assertRaisesRegex(ValueError, 'Unknown measurement barcode 43'):
             self.build(data)
+
+    def test_measurement_variants_partition_observations_and_keep_dynamics(self):
+        data = example_data()
+        full, full_variables = self.build(data)
+        original_measurements = {
+            rid: robot['measurements'].copy() for rid, robot in data['robots'].items()
+        }
+        kwargs = dict(prior_cov=np.diag([.2, .3, .1]),
+                      odometry_cov=np.diag([.02, .03, .01]),
+                      measurement_cov=np.diag([.1, .02]))
+        for name, landmark_only, edges in (
+            ('build_graph_landmark', True, 10),
+            ('build_graph_robot_meas', False, 12),
+        ):
+            with self.subTest(module=name):
+                spec = importlib.util.spec_from_file_location(name, MODULE_PATH.with_name(name + '.py'))
+                module = importlib.util.module_from_spec(spec)
+                with patch.object(sys, 'path', [str(MODULE_PATH.parent), *sys.path]):
+                    spec.loader.exec_module(module)
+                graph, variables = module.build_graph(data, **kwargs)
+                self.assertEqual(graph.n_var_nodes, full.n_var_nodes)
+                self.assertEqual(graph.n_factor_nodes, 6)
+                self.assertEqual(graph.n_edges, edges)
+                expected = [f for f in full.factors
+                            if f.meas_fn.__name__ == 'odometry_residual'
+                            or ((f.args[1] is not None) == landmark_only)]
+                for actual, reference in zip(graph.factors, expected):
+                    self.assertEqual(actual.adj_vIDs, reference.adj_vIDs)
+                    self.assertEqual(actual.meas_fn.__name__, reference.meas_fn.__name__)
+                    np.testing.assert_array_equal(actual.measurement, reference.measurement)
+                    np.testing.assert_array_equal(actual.gauss_noise_var, reference.gauss_noise_var)
+                    np.testing.assert_allclose(actual.factor.eta, reference.factor.eta)
+                    np.testing.assert_allclose(actual.factor.lam, reference.factor.lam)
+                for rid, nodes in variables['robots'].items():
+                    for actual, reference in zip(nodes, full_variables['robots'][rid]):
+                        np.testing.assert_array_equal(actual.mean, reference.mean)
+                        np.testing.assert_array_equal(actual.prior.lam, reference.prior.lam)
+                graph.solve(max_iters=2)
+                for node in graph.var_nodes:
+                    self.assertTrue(np.isfinite(node.mean).all())
+                    self.assertGreater(np.linalg.eigvalsh(node.cov).min(), 0.)
+        for rid, robot in data['robots'].items():
+            np.testing.assert_array_equal(robot['measurements'], original_measurements[rid])
+
+    def test_measurement_type_is_validated(self):
+        with self.assertRaisesRegex(ValueError, 'measurement_type'):
+            builder.build_graph(example_data(), prior_cov=np.eye(3),
+                                odometry_cov=np.eye(3), measurement_cov=np.eye(2),
+                                measurement_type='invalid')
+
+    def test_unknown_barcode_is_reported_for_each_measurement_type(self):
+        data = example_data()
+        data['robots'][1]['measurements'][0, 1] = 43
+        for mode in ('landmark', 'robot'):
+            with self.subTest(mode=mode), self.assertRaisesRegex(ValueError, 'Unknown measurement barcode 43'):
+                builder.build_graph(data, prior_cov=np.eye(3), odometry_cov=np.eye(3),
+                                    measurement_cov=np.eye(2), measurement_type=mode)
 
 
 if __name__ == '__main__':
