@@ -1,0 +1,15 @@
+{
+  "initial_cost": 25634.18230644084,
+  "cost": 4028.479531997955,
+  "success": true,
+  "status": 3,
+  "message": "`xtol` termination condition is satisfied.",
+  "nfev": 112,
+  "gradient_norm": 4839062080.599976,
+  "optimality": 3424421870.8637156,
+  "scaled_gradient_max": 0.0003338653509638022,
+  "seconds": 7.141541099990718,
+  "min_predicted_range": 1.6699344335695155e-12,
+  "stationarity_certified": false,
+  "note": "xtol termination is not an optimality certificate; gradient remains large and a predicted range is near zero."
+}
