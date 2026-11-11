@@ -1,4 +1,8 @@
 from pathlib import Path
+import sys
+
+# Allow direct execution by path without installing the local solver package.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from load_data import load_data, prepare_data
 from build_graph import build_graph
@@ -15,9 +19,9 @@ DATASET_DIR = (
 )
 HISTORY_PATH = Path(__file__).resolve().with_name('history.csv')
 
-hz=1
-start_offset=20.0  # Seconds after the common start of all robots' state data.
-duration=50
+hz=10
+start_offset=10.0  # Seconds after the common start of all robots' state data.
+duration=100
 max_iters=9000
 
 # covariance matrices

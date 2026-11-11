@@ -168,7 +168,8 @@ def print_rmse(data, poses):
     return per_robot, total
 
 
-def plot_estimates(data, poses, *, options=1, iteration=None, raw_data=None, show=False):
+def plot_estimates(data, poses, *, options=1, iteration=None, raw_data=None, show=False,
+                   solver_name='GBP'):
     """Plot supplied solver states using its prepared data and observation option."""
     if show:
         plt.switch_backend('TkAgg')
@@ -203,7 +204,7 @@ def plot_estimates(data, poses, *, options=1, iteration=None, raw_data=None, sho
         ax.annotate(f'L{int(subject)}', (x, y), xytext=(6, 6),
                     textcoords='offset points', fontsize=9, color='#536375')
     duration = data['end_time'] - data['start_time']
-    ax.set_title(f'GBP, GT and factor connections | {OPTION_NAMES[options]}\n'
+    ax.set_title(f'{solver_name}, GT and factor connections | {OPTION_NAMES[options]}\n'
                  f'Iteration {iteration} | duration {duration:g} s')
     estimate_lines, truth_lines = [], []
     for r, (robot_id, color) in enumerate(zip(robot_ids, COLORS)):
@@ -233,7 +234,7 @@ def plot_estimates(data, poses, *, options=1, iteration=None, raw_data=None, sho
                               linewidth=1.5, alpha=.65, zorder=2, label=f'R{robot_id} GT')
         estimate_line, = ax.plot(estimates[r, :, 0], estimates[r, :, 1], '-o',
                                  color=color, linewidth=1.8, markersize=3.5,
-                                 zorder=5, label=f'R{robot_id} GBP')
+                                 zorder=5, label=f'R{robot_id} {solver_name}')
         estimate_lines.append(estimate_line)
         truth_lines.append(truth_line)
 
@@ -253,7 +254,7 @@ def plot_estimates(data, poses, *, options=1, iteration=None, raw_data=None, sho
     legend.set_draggable(True)
     fig.tight_layout()
     if show:
-        fig.canvas.manager.set_window_title('UTIAS GBP | Pan and zoom')
+        fig.canvas.manager.set_window_title(f'UTIAS {solver_name} | Pan and zoom')
         plt.show(block=True)
     return fig, ax
 

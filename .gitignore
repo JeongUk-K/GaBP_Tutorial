@@ -7,4 +7,6 @@ kgw-legacy/
 pbp/
 pbp copy/
 ref/
-
+gsolver/
+cooperative localization/UTIAS dataset/history.csv
+cooperative localization/UTIAS dataset/gtsam/history.csv

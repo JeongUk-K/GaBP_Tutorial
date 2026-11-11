@@ -1,3 +1,4 @@
 {
-    "python-envs.defaultEnvManager": "ms-python.python:venv"
+    "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "cmake.sourceDirectory": "/home/cora-tuf/GaBP_Tutorial/gsolver"
 }
