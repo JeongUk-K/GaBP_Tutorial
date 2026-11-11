@@ -2,12 +2,15 @@ import numpy as np
 import jax.numpy as jnp
 
 from my_gbp import FactorGraph
+from my_gbp.manifold import Euclidean
+
 
 import matplotlib.pyplot as plt
 if __package__:
-    from .plotter import plot_history
+    from .utils.plotter import plot_history
 else:
-    from plotter import plot_history
+    from examples.utils.plotter import plot_history
+    
 
 # measurement function and its Jacobian
 def distance(x):
@@ -32,16 +35,19 @@ def build_graph(meas_fn, jacobian, jac_fn=None):
         dofs=2,
         prior_mean=np.array([1.0, 2.0]),
         prior_cov=np.array([[1.0, 0.5], [0.5, 2.0]]),
+        manifold=Euclidean(2)
     )
     x2 = factor_graph.add_variable(
         dofs=2,
         prior_mean=np.array([0.5, 1.5]),
         prior_cov=np.array([[0.5, 0.2], [0.2, 1.0]]),
+        manifold=Euclidean(2)
     )
     x3 = factor_graph.add_variable(
         dofs=2,
         prior_mean=np.array([1.5, 2.5]),
         prior_cov=np.array([[1.5, 0.7], [0.7, 3.0]]),
+        manifold=Euclidean(2)
     )
 
     meas_x1_x2 = 2.0
@@ -62,13 +68,13 @@ def build_graph(meas_fn, jacobian, jac_fn=None):
 
 
 graph_ad = build_graph(distance_ad, jacobian='auto')
-converged_ad, n_iters_ad, history_ad = graph_ad.solve()
+converged_ad, n_iters_ad, history_ad = graph_ad.solve(history=True)
 
 graph_numerical = build_graph(distance, jacobian='numerical')
-converged_numerical, n_iters_numerical, history_numerical = graph_numerical.solve()
+converged_numerical, n_iters_numerical, history_numerical = graph_numerical.solve(history=True)
 
 graph_analytic = build_graph(distance, jacobian='analytic', jac_fn=distance_jacobian)
-converged_analytic, n_iters_analytic, history_analytic = graph_analytic.solve()
+converged_analytic, n_iters_analytic, history_analytic = graph_analytic.solve(history=True)
 
 
 

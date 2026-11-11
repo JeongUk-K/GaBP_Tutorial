@@ -9,6 +9,10 @@ from .gaussian import NdimGaussian
 from .autodiff import make_jac_fn
 from .factor import Factor
 from .variable_node import VariableNode
+from .manifold import Euclidean
+from .utils.save_history import save_history
+
+from time import perf_counter
 
 
 class FactorGraph:
@@ -37,7 +41,8 @@ class FactorGraph:
             self.num_undamped_iters = 0 if num_undamped_iters is None else num_undamped_iters
             self.min_linear_iters = 0 if min_linear_iters is None else min_linear_iters
 
-    def add_variable(self, dofs, prior_mean=None, prior_cov=None, weak_std=1e3):
+    def add_variable(self, dofs, prior_mean=None, prior_cov=None, weak_std=1e3, *,
+                     manifold=None):
         """
             Declaratively add a variable node to the graph and return it.
 
@@ -47,17 +52,24 @@ class FactorGraph:
             prior_cov: covariance of the prior. If None a weak (near-uninformative)
                 isotropic prior with std weak_std is used so the graph stays well posed.
             weak_std: std of the default weak prior when prior_cov is not given.
+            manifold: geometry of the state; defaults to Euclidean(dofs).
         """
-        var_node = VariableNode(self.n_var_nodes, dofs)
-
+        manifold = Euclidean(dofs) if manifold is None else manifold
+        if prior_mean is None and not isinstance(manifold, Euclidean):
+            raise ValueError('prior_mean is required for a non-Euclidean manifold')
         mean = (np.zeros((dofs, 1)) if prior_mean is None
-                else np.asarray(prior_mean, dtype=float).reshape(dofs, 1))
+                else np.asarray(prior_mean, dtype=float).copy())
+        if isinstance(manifold, Euclidean):
+            mean = mean.reshape(dofs, 1)
+        var_node = VariableNode(self.n_var_nodes, dofs, manifold=manifold,
+                                initial_state=mean)
         if prior_cov is None:
             lam = np.eye(dofs) / (weak_std ** 2)
         else:
             lam = np.linalg.inv(np.asarray(prior_cov, dtype=float))
 
-        var_node.prior.eta = lam @ mean
+        # The fixed prior is centred at its own reference state.
+        var_node.prior.eta = np.zeros((dofs, 1))
         var_node.prior.lam = lam
         var_node.mu = mean.copy()
         var_node.Sigma = (np.eye(dofs) * (weak_std ** 2) if prior_cov is None
@@ -90,7 +102,7 @@ class FactorGraph:
                         meas_fn, jac_fn, loss, mahalanobis_threshold, *args,
                         jacobian=jacobian)
 
-        linpoint = np.concatenate([np.asarray(v.mu, dtype=float).ravel() for v in variables])
+        linpoint = tuple(v.mean.copy() for v in variables)
         factor.compute_factor(linpoint)
 
         for var_node in variables:
@@ -100,54 +112,97 @@ class FactorGraph:
         self.n_edges += len(variables)
         return factor
 
-    def converged(self, prev_means, tol):
+    def converged_mean_change(self, prev_means, tol):
         """
             Whether the belief means have moved less than tol (L2) since prev_means.
         """
-        return np.linalg.norm(self.get_means() - prev_means) < tol
+        if not isinstance(prev_means, tuple):
+            return np.linalg.norm(self.get_means() - prev_means) < tol
+        changes = [var.manifold.local(previous, var.mean)
+                   for var, previous in zip(self.var_nodes, prev_means)]
+        mean_change = np.linalg.norm(np.concatenate(changes) if changes else np.array([]))
+        return mean_change < tol, mean_change
 
-    def solve(self, max_iters=200, tol=1e-6, local_relin=True, robustify=False):
+    def solve(self, max_iters=200, tol=1e-6, local_relin=True, robustify=False, monitoring=False, history=False,
+              history_path=None):
         """
             Run synchronous GBP until the belief means stop changing (< tol) or
             max_iters is reached. Returns (converged, n_iters, history).
 
-            Reset history on each call and store copied means and covariances
-            after every completed iteration, in var_nodes order. Iterations start
-            at 1; the initial state is not included.
+            Reset self.history on each call. If history=True, store copied means
+            and covariances after each completed iteration, in var_nodes order.
+            Iterations start at 1; the initial state is not included.
+            With history=False, return an empty history list.
+            With history=True, also write each iteration to history_path; the
+            default is history.csv in the current working directory. Each solve
+            starts a new CSV file, retaining completed iterations on later errors.
+            Monitoring prints the mean step and factor-plus-prior energy.
         """
+        elapsed_time = 0.0
+        if monitoring:
+            print('Solving factor graph with', self.n_var_nodes, 'variables,', self.n_factor_nodes, 'factors and', self.n_edges, 'edges.')
+
         self.history = []
+        if history:
+            variable_ids = [node.variableID for node in self.var_nodes]
+            history_csv = save_history(None, variable_ids, history_path, append=False)
         self.update_all_beliefs()
         for i in range(max_iters):
-            prev_means = self.get_means()
+            start_time = perf_counter()
+            prev_means = self.get_states()
             self.synchronous_iteration(local_relin=local_relin, robustify=robustify)
-            self.history.append({
-                'iter': i + 1,
-                'means': [node.mean.copy() for node in self.var_nodes],
-                'covs': [node.cov.copy() for node in self.var_nodes],
-            })
-            if self.converged(prev_means, tol):
+            if history:
+                self.history.append({
+                    'iter': i + 1,
+                    'means': [node.mean.copy() for node in self.var_nodes],
+                    'covs': [node.cov.copy() for node in self.var_nodes],
+                })
+                save_history(self.history[-1], variable_ids, history_csv)
+            flag, mean_change = self.converged_mean_change(prev_means, tol)
+            if monitoring:
+                energy = self.energy()
+                elapsed_time += perf_counter() - start_time
+                print(
+                    'Iteration', i + 1, '/', max_iters,
+                    '. Elapsed time:', f'{elapsed_time:.3f}', 'seconds.',
+                    'Step norm:', f'{mean_change:.6f}',
+                    'Energy:', f'{energy:.6f}', flush=True,
+                )
+            if flag:
                 return True, i + 1, self.history
         return False, max_iters, self.history
 
-    # def energy(self):
-    #     """
-    #         Computes the sum of all of the squared errors in the graph using the appropriate local loss function.
-    #     """
-    #     energy = 0
-    #     for factor in self.factors:
-    #         # Variance of Gaussian noise at each factor is weighting of each term in squared loss.
-    #         energy += 0.5 * np.linalg.norm(factor.compute_residual()) ** 2 / factor.adaptive_gauss_noise_var
-    #     return energy
+    def energy(self):
+        """Factor and prior quadratic costs, omitting fixed additive constants."""
+        energy = 0.0
+        for factor in self.factors:
+            residual = np.asarray(factor.compute_residual()).reshape(-1)
+            covariance = np.asarray(factor.adaptive_gauss_noise_var)
+            energy += 0.5 * float(residual @ np.linalg.solve(covariance, residual))
+
+        # Evaluate priors at their original reference, not the updated belief.
+        for variable in self.var_nodes:
+            prior = variable.prior
+            delta = np.asarray(
+                prior.manifold.local(prior.reference, variable.mean)
+            ).reshape(-1)
+            energy += (
+                0.5 * float(delta @ prior.lam @ delta)
+                - float(prior.eta.ravel() @ delta)
+            )
+        return energy
 
     def compute_all_messages(self, local_relin=True):
-        for factor in self.factors:
+        # Freeze all incoming cavities before any outgoing message changes.
+        incoming = [factor.prepare_messages() for factor in self.factors]
+        for factor, messages in zip(self.factors, incoming):
             # If relinearisation is local then damping is also set locally per factor.
             if self.nonlinear_factors and local_relin:
                 if factor.iters_since_relin == self.num_undamped_iters:
                     factor.eta_damping = self.eta_damping
-                factor.compute_messages(factor.eta_damping)
+                factor.compute_messages(factor.eta_damping, incoming_messages=messages)
             else:
-                factor.compute_messages(self.eta_damping)
+                factor.compute_messages(self.eta_damping, incoming_messages=messages)
 
     def update_all_beliefs(self):
         for var_node in self.var_nodes:
@@ -165,12 +220,15 @@ class FactorGraph:
         """
         if self.nonlinear_factors:
             for factor in self.factors:
-                adj_belief_means = np.vstack([
-                    (np.linalg.inv(belief.lam) @ belief.eta).reshape(belief.dim, 1)
-                    for belief in factor.adj_beliefs
+                states = tuple(var.mean.copy() for var in factor.adj_var_nodes)
+                changes = np.concatenate([
+                    var.manifold.local(reference, state)
+                    for var, reference, state in zip(
+                        factor.adj_var_nodes, factor._reference_states, states,
+                    )
                 ])
-                if np.linalg.norm(factor.linpoint - adj_belief_means) > self.beta and factor.iters_since_relin >= self.min_linear_iters:
-                    factor.compute_factor(linpoint=adj_belief_means)
+                if np.linalg.norm(changes) > self.beta and factor.iters_since_relin >= self.min_linear_iters:
+                    factor.compute_factor(linpoint=states)
                     factor.iters_since_relin = 0
                     factor.eta_damping = 0.0
                 else:
@@ -240,10 +298,16 @@ class FactorGraph:
     #     mu = sigma @ eta
     #     return mu, sigma
 
+    def get_states(self):
+        """Return independent state snapshots in variable order."""
+        return tuple(var.mean.copy() for var in self.var_nodes)
+
     def get_means(self):
         """
-            Get a flat array containing all current estimates of belief means.
+            Return flat Euclidean means, or a state tuple for manifold graphs.
         """
+        if any(not isinstance(var.manifold, Euclidean) for var in self.var_nodes):
+            return self.get_states()
         mus = np.array([])
         for var_node in self.var_nodes:
             mus = np.concatenate((mus, var_node.mu.ravel()))

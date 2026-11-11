@@ -4,7 +4,6 @@ __pycache__/
 .ipynb_checkpoints/
 .venv/
 kgw-legacy/
-dataset/
 pbp/
 pbp copy/
 ref/

@@ -1,82 +1,77 @@
-"""
-Simple graph-operation test for the general-purpose GBP solver.
-
-Builds an N-dimensional pose graph: variable nodes sit at random locations and are
-connected to their nearest neighbours by linear displacement factors
-    h(x_i, x_j) = x_j - x_i.
-GBP is run with the declarative API and the resulting belief means are checked
-against the exact batch MAP solution. This exercises the whole pipeline
-(add_variable / add_factor / message passing / solve) on a purely general problem
-with no SLAM-specific code.
-
-Run with the repo root on the path:
-    PYTHONPATH=. python examples/pose_graph.py
-"""
-
 import numpy as np
 
-from gbp import FactorGraph
+from my_gbp import FactorGraph
+from my_gbp.manifold import Euclidean
 
-np.random.seed(0)
 
-N = 30          # number of variable nodes
-DIM = 3         # dimensionality of each node
-M = 5           # nearest neighbours each node connects to
-NOISE_STD = 1.0  # std of the Gaussian measurement noise
+N = 30
+DIM = 3
+M = 5
+NOISE_STD = 1.0
 
 
 def displacement(x):
-    """Measurement function h([x_i, x_j]) = x_j - x_i."""
-    d = len(x) // 2
-    return x[d:] - x[:d]
+    return x[DIM:] - x[:DIM]
 
 
-def displacement_jac(x, *args):
-    """Analytic Jacobian of the displacement measurement function."""
-    d = len(x) // 2
-    return np.hstack((-np.eye(d), np.eye(d)))
+def displacement_jacobian(x):
+    return np.hstack((-np.eye(DIM), np.eye(DIM)))
 
 
-def main():
-    gt = np.random.rand(N, DIM) * 10  # ground-truth node positions
+def build_graph(jacobian, jac_fn=None):
+    # Use the same positions, priors and measurements for every Jacobian mode.
+    rng = np.random.RandomState(0)
+    ground_truth = rng.rand(N, DIM) * 10
+    prior_cov = 3 * np.eye(DIM)
+    measurement_cov = NOISE_STD ** 2 * np.eye(DIM)
 
-    graph = FactorGraph(nonlinear_factors=False)
+    factor_graph = FactorGraph(nonlinear_factors=False)
 
-    # One variable per node, initialised near (but not at) ground truth.
-    nodes = [
-        graph.add_variable(DIM,
-                           prior_mean=gt[i] + np.random.randn(DIM),
-                           prior_cov=3 * np.eye(DIM))
-        for i in range(N)
-    ]
+    # Add one Euclidean variable for each position.
+    nodes = []
+    for position in ground_truth:
+        node = factor_graph.add_variable(
+            dofs=DIM,
+            prior_mean=position + rng.randn(DIM),
+            prior_cov=prior_cov,
+            manifold=Euclidean(DIM),
+        )
+        nodes.append(node)
 
-    # Connect each node to its M nearest neighbours with a displacement factor.
+    # Add each nearest-neighbour displacement factor once.
     edges = set()
     for i in range(N):
-        order = np.argsort(np.linalg.norm(gt - gt[i], axis=1))
-        for j in order[1:M + 1]:          # order[0] is the node itself
+        neighbours = np.argsort(np.linalg.norm(ground_truth - ground_truth[i], axis=1))
+        for j in neighbours[1:M + 1]:
             edge = tuple(sorted((i, int(j))))
             if edge in edges:
                 continue
             edges.add(edge)
             a, b = edge
-            z = gt[b] - gt[a] + np.random.normal(0, NOISE_STD, DIM)
-            graph.add_factor([nodes[a], nodes[b]], displacement, z, NOISE_STD,
-                             jacobian='analytic', jac_fn=displacement_jac)
+            measurement = (ground_truth[b] - ground_truth[a]
+                           + rng.normal(0, NOISE_STD, DIM))
+            factor_graph.add_factor(
+                [nodes[a], nodes[b]],
+                meas_fn=displacement,
+                measurement=measurement,
+                noise_cov=measurement_cov,
+                jacobian=jacobian,
+                jac_fn=jac_fn,
+            )
 
-    print(f'nodes={N}  dim={DIM}  factors={len(graph.factors)}')
-
-    # Exact reference solution (linear problem => GBP should reach it).
-    mu_batch, _ = graph.joint_distribution_cov()
-
-    converged, iters = graph.solve(max_iters=200, tol=1e-6)
-    err = np.linalg.norm(graph.get_means() - mu_batch)
-
-    print(f'converged={converged} in {iters} iters  //  '
-          f'||GBP means - batch MAP|| = {err:.3e}')
-    assert err < 1e-3, 'GBP means did not match the batch MAP solution'
-    print('OK: graph converged to the batch MAP solution.')
+    return factor_graph
 
 
 if __name__ == '__main__':
-    main()
+    graph_ad = build_graph(jacobian='auto')
+    converged_ad, n_iters_ad, history_ad = graph_ad.solve()
+
+    graph_numerical = build_graph(jacobian='numerical')
+    converged_numerical, n_iters_numerical, history_numerical = graph_numerical.solve()
+
+    graph_analytic = build_graph(jacobian='analytic', jac_fn=displacement_jacobian)
+    converged_analytic, n_iters_analytic, history_analytic = graph_analytic.solve()
+
+    print('AD:', converged_ad, 'iters:', n_iters_ad)
+    print('Numerical:', converged_numerical, 'iters:', n_iters_numerical)
+    print('Analytic:', converged_analytic, 'iters:', n_iters_analytic)
