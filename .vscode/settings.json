@@ -1,4 +1,9 @@
 {
     "python-envs.defaultEnvManager": "ms-python.python:venv",
+    "python.defaultInterpreterPath": "${workspaceFolder}/gsolver/.venv/bin/python",
+    "terminal.integrated.env.linux": {
+        "PYTHONPATH": "${workspaceFolder}:${env:PYTHONPATH}",
+        "OMP_NUM_THREADS": "1"
+    },
     "cmake.sourceDirectory": "/home/cora-tuf/GaBP_Tutorial/gsolver"
 }

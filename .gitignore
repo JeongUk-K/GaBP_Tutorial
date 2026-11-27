@@ -7,6 +7,10 @@ kgw-legacy/
 pbp/
 pbp copy/
 ref/
-gsolver/
+/build/
+/build-cpp/
+/example/UTIAS data/*/results/
+/example/UTIAS data/*/results_sliding_demo/
+/example/toy_example/gsolver/*.gif
 cooperative localization/UTIAS dataset/history.csv
 cooperative localization/UTIAS dataset/gtsam/history.csv

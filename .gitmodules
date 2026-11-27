@@ -1,0 +1,6 @@
+[submodule "solver/gsolver"]
+	path = solver/gsolver
+	url = https://github.com/rvp-group/gsolver.git
+[submodule "solver/gtsam"]
+	path = solver/gtsam
+	url = https://github.com/borglab/gtsam.git
